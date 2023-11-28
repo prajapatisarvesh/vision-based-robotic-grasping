@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://wiki.ros.org/xacro" name="ur3e_robotiq">
+  <!-- Include The ARM XACRO -->
+  <xacro:include filename="$(find ur_description)/urdf/ur3e.xacro"/>
+  <!-- Include The Gripper URDF -->
+  <xacro:include filename="$(find robotiq_arg85_description)/robots/robotiq_arg85_description.URDF"/>
+  <!-- Add a fixed joint between tool0 and robotiq_85_base_link -->
+  <joint name="connect_gripper" type="fixed">
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <parent link="tool0"/>
+    <child link="robotiq_85_base_link"/>
+  </joint>
+</robot>
