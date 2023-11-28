@@ -1,3 +1,9 @@
 [submodule "Orbit"]
 	path = Orbit
 	url = https://github.com/prajapatisarvesh/Orbit.git
+[submodule "universal_robot"]
+	path = universal_robot
+	url = https://github.com/prajapatisarvesh/universal_robot
+[submodule "robotiq_arg85_description"]
+	path = robotiq_arg85_description
+	url = https://github.com/prajapatisarvesh/robotiq_arg85_description
