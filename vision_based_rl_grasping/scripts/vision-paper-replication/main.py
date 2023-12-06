@@ -18,6 +18,15 @@ from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.utils import set_random_seed
 
+import os
+import matplotlib.pyplot as plt
+
+from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.results_plotter import load_results, ts2xy
+from stable_baselines3.common.noise import NormalActionNoise
+from stable_baselines3.common.callbacks import BaseCallback
+from stable_baselines3.common import results_plotter
+
 class ContinuousDownwardBiasPolicy(object):
   """Policy which takes continuous actions, and is biased to move down.
   """
@@ -39,6 +48,54 @@ class ContinuousDownwardBiasPolicy(object):
       dz = -1
     return [dx, dy, dz, da, 0]
 
+class SaveOnBestTrainingRewardCallback(BaseCallback):
+    """
+    Callback for saving a model (the check is done every ``check_freq`` steps)
+    based on the training reward (in practice, we recommend using ``EvalCallback``).
+
+    :param check_freq: (int)
+    :param log_dir: (str) Path to the folder where the model will be saved.
+      It must contains the file created by the ``Monitor`` wrapper.
+    :param verbose: (int)
+    """
+
+    def __init__(self, check_freq: int, log_dir: str, verbose=1):
+        super().__init__(verbose)
+        self.check_freq = check_freq
+        self.log_dir = log_dir
+        self.save_path = os.path.join(log_dir, "best_model")
+        self.best_mean_reward = -np.inf
+
+    def _init_callback(self) -> None:
+        # Create folder if needed
+        if self.save_path is not None:
+            os.makedirs(self.save_path, exist_ok=True)
+
+    def _on_step(self) -> bool:
+        if self.n_calls % self.check_freq == 0:
+
+            # Retrieve training reward
+            x, y = ts2xy(load_results(self.log_dir), "timesteps")
+            if len(x) > 0:
+                # Mean training reward over the last 100 episodes
+                mean_reward = np.mean(y[-100:])
+                if self.verbose > 0:
+                    print(f"Num timesteps: {self.num_timesteps}")
+                    print(
+                        f"Best mean reward: {self.best_mean_reward:.2f} - Last mean reward per episode: {mean_reward:.2f}"
+                    )
+
+                # New best model, you could save the agent here
+                if mean_reward > self.best_mean_reward:
+                    self.best_mean_reward = mean_reward
+                    # Example for saving best model
+                    if self.verbose > 0:
+                        print(f"Saving new best model to {self.save_path}.zip")
+                    self.model.save(self.save_path)
+
+        return True
+      
+      
 def make_env(env_id: str, rank: int, seed: int=0):
   def _init():
     register_env(id='Kuka-v0', entry_point='pybullet_envs.bullet.kuka_diverse_object_gym_env:KukaDiverseObjectEnv')
@@ -67,16 +124,63 @@ def main():
       episode_rew += rew
     print("Episode reward", episode_rew)
 
-def differentPolicies(policy):
+def differentPolicies(policy, Vectorized = False,nenv = 1):
+  # Create log dir
+  log_dir = "/home/mewada/Documents/vision-based-robotic-grasping/vision_based_rl_grasping/scripts/vision-paper-replication/logs/"
+  os.makedirs(log_dir, exist_ok=True)
+  print("Temporary log dir: {}".format(log_dir))
+
   register_env(id='Kuka-v0', entry_point='pybullet_envs.bullet.kuka_diverse_object_gym_env:KukaDiverseObjectEnv')
   # env = gym.make(id='Kuka-v0', renders=True, isDiscrete=False)
   # env = DummyVecEnv([lambda: env])
-  env = SubprocVecEnv([make_env('Kuka-v0', i) for i in range(50)])
+  if Vectorized:
+    nenv = 50
+  else:
+    nenv = 1
+  env = SubprocVecEnv([make_env('Kuka-v0', i) for i in range(nenv)])
+  callback = SaveOnBestTrainingRewardCallback(check_freq=1000, log_dir=log_dir)  
   model = policy("MlpPolicy",env,verbose=1, tensorboard_log='runs', n_steps = 1000)
-  model.learn(total_timesteps=1e5, progress_bar=True)
+  model.learn(total_timesteps=5, progress_bar=True, callback=callback)
   model.save('A2C-Kuka')
   print("PPO Policy Implementations")
+  
+  # Helper from the library
+  results_plotter.plot_results(
+      [log_dir], 1e5, results_plotter.X_TIMESTEPS, "TD3 LunarLander"
+  )
+  def moving_average(values, window):
+    """
+    Smooth values by doing a moving average
+    :param values: (numpy array)
+    :param window: (int)
+    :return: (numpy array)
+    """
+    weights = np.repeat(1.0, window) / window
+    return np.convolve(values, weights, "valid")
+
+
+  def plot_results(log_folder, title="Learning Curve"):
+    """
+    plot the results
+
+    :param log_folder: (str) the save location of the results to plot
+    :param title: (str) the title of the task to plot
+    """
+    x, y = ts2xy(load_results(log_folder), "timesteps")
+    y = moving_average(y, window=50)
+    # Truncate x
+    x = x[len(x) - len(y) :]
+
+    fig = plt.figure(title)
+    plt.plot(x, y)
+    plt.xlabel("Number of Timesteps")
+    plt.ylabel("Rewards")
+    plt.title(title + " Smoothed")
+    plt.show()
+  
+  plot_results(log_dir)
   env.close()
+  
   # env = gym.make(id='Kuka-v0', renders=True, isDiscrete=False)
   # env = DummyVecEnv([lambda: env])
   # for _ in range(5):
@@ -98,4 +202,4 @@ def differentPolicies(policy):
 
 if __name__ == '__main__':
   # main()
-  differentPolicies(A2C)
+  differentPolicies(A2C, Vectorized=False, nenv=1)
