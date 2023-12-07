@@ -158,12 +158,15 @@ def plot_results(log_folder, title="Learning Curve"):
     plt.show()
 
 
-def differentPolicies(policy, Vectorized=False, nenv=1):
+def differentPolicies(policy, Vectorized=False, nenv=1,evaluation=False):
     # Create log dir
-    log_dir = "/home/yash/Documents/vision-based-robotic-grasping/vision_based_rl_grasping/scripts/vision-paper-replication/logs/"
+    log_dir = "/home/mewada/Documents/vision-based-robotic-grasping/vision_based_rl_grasping/scripts/vision-paper-replication/logs/"
     os.makedirs(log_dir, exist_ok=True)
     print("Temporary log dir: {}".format(log_dir))
 
+    monitor_dir = os.path.join(log_dir, "monitor")
+    os.makedirs(monitor_dir, exist_ok=True)
+    
     register_env(
         id="Kuka-v0",
         entry_point="pybullet_envs.bullet.kuka_diverse_object_gym_env:KukaDiverseObjectEnv",
@@ -176,22 +179,19 @@ def differentPolicies(policy, Vectorized=False, nenv=1):
         nenv = 1
     env = SubprocVecEnv([make_env("Kuka-v0", i) for i in range(nenv)])
     # callback = SaveOnBestTrainingRewardCallback(check_freq=1000, log_dir=log_dir)
-    model = policy("MlpPolicy", env, verbose=1, tensorboard_log="runs", n_steps=1000)
+    model = policy("MlpPolicy", env, verbose=1, tensorboard_log="runs", n_steps=1000,device='cuda')
+
     evalCallback = EvalCallback(
         env,
         best_model_save_path=log_dir,
         log_path=log_dir,
         eval_freq=500,
     )
-    model.learn(total_timesteps=1e5, progress_bar=True, callback=evalCallback)
+    model.learn(total_timesteps=5, progress_bar=True, callback=evalCallback)
     model.save("A2C-Kuka")
     print("PPO Policy Implementations")
 
     # Helper from the library
-    # results_plotter.plot_results(
-    #     [log_dir], 1e5, results_plotter.X_TIMESTEPS, "Kuka-v0"
-    # )
-
     # plot_results(log_dir)
     env.close()
 
@@ -214,6 +214,34 @@ def differentPolicies(policy, Vectorized=False, nenv=1):
     #   env.close()
 
 
+def eval(policy,nenv=1):
+  model = policy.load("A2C-Kuka")
+  env = SubprocVecEnv([make_env("Kuka-v0", i) for i in range(nenv)])
+  obs = env.reset()
+  
+  rwards = []
+  meanrwrd = []
+  cum_rwd = 0
+  for i in range(1000):
+    act,_ = model.predict(obs)
+    obs, rew, done, _ = env.step(act)
+    cum_rwd += rew
+    rwards.append(cum_rwd)
+    meanrwrd.append(sum(rwards[:i + 1]) / (i + 1))
+    if done:
+      obs = env.reset()
+    env.render(mode='human')
+    print("Episode run: ",i)
+
+  plt.plot(meanrwrd)
+  plt.title("Mean Reward for A2C")
+  plt.xlabel("Episode")
+  plt.ylabel("Mean Reward")
+  plt.savefig("mean_reward.png")
+  plt.show()
+  
+  
 if __name__ == "__main__":
     # main()
-    differentPolicies(A2C, Vectorized=True, nenv=15)
+    # differentPolicies(A2C, Vectorized=False, nenv=1)
+    eval(A2C,nenv=1)
