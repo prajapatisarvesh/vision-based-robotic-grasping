@@ -27,25 +27,19 @@ import argparse
 
 # Create an argument parser
 parser = argparse.ArgumentParser()
-parser.add_argument("-e", "--EVAL", help="If want to evaluate the model or not", default=False)
+parser.add_argument(
+    "-e", "--EVAL", help="If want to evaluate the model or not", default=False
+)
 args = parser.parse_args()
 
 
-def build_hidden_layer(input_dim, hidden_layers):
-    """
-    Build hidden layer.
-
-    Params
-    ======
-        input_dim (int): Dimension of the hidden layer input
-        hidden_layers (list[int]): Dimensions of hidden layers
-    """
+def hiddenLayers(input_dim, hidden_layers):
     hidden = nn.ModuleList([nn.Linear(input_dim, hidden_layers[0])])
-    
+
     if len(hidden_layers) > 1:
         layer_sizes = zip(hidden_layers[:-1], hidden_layers[1:])
         hidden.extend([nn.Linear(h1, h2) for h1, h2 in layer_sizes])
-    
+
     return hidden
 
 
@@ -58,25 +52,11 @@ class A2C(nn.Module):
         critic_hidden_layers=[],
         actor_hidden_layers=[],
         seed=0,
-        init_type=None,
     ):
-        """Initialize parameters and build policy.
-        Params
-        ======
-            state_size (int,int,int): Dimension of each state
-            action_size (int): Dimension of each action
-            shared_layers (list(int)): Dimension of the shared hidden layers
-            critic_hidden_layers (list(int)): Dimension of the critic's hidden layers
-            actor_hidden_layers (list(int)): Dimension of the actor's hidden layers
-            seed (int): Random seed
-            init_type (str): Initialization type
-        """
         super(A2C, self).__init__()
-        self.init_type = init_type
         self.seed = torch.manual_seed(seed)
         self.sigma = nn.Parameter(torch.zeros(action_size))
 
-        # Add shared hidden layer
         self.conv1 = nn.Conv2d(3, 16, kernel_size=5, stride=2)
         self.bn1 = nn.BatchNorm2d(16)
         self.conv2 = nn.Conv2d(16, 32, kernel_size=5, stride=2)
@@ -84,22 +64,18 @@ class A2C(nn.Module):
         self.conv3 = nn.Conv2d(32, 32, kernel_size=5, stride=2)
         self.bn3 = nn.BatchNorm2d(32)
 
-        # Number of Linear input connections depends on output of conv2d layers
-        # and therefore the input image size, so compute it.
         def conv2d_size_out(size, kernel_size=5, stride=2):
             return (size - (kernel_size - 1) - 1) // stride + 1
 
         convw = conv2d_size_out(conv2d_size_out(conv2d_size_out(state_size[0])))
         convh = conv2d_size_out(conv2d_size_out(conv2d_size_out(state_size[1])))
         linear_input_size = convh * convw * 32
-        self.shared_layers = build_hidden_layer(
+        self.shared_layers = hiddenLayers(
             input_dim=linear_input_size, hidden_layers=shared_layers
         )
 
-        # Add critic layers
         if critic_hidden_layers:
-            # Add hidden layers for critic net if critic_hidden_layers is not empty
-            self.critic_hidden = build_hidden_layer(
+            self.critic_hidden = hiddenLayers(
                 input_dim=shared_layers[-1], hidden_layers=critic_hidden_layers
             )
             self.critic = nn.Linear(critic_hidden_layers[-1], 1)
@@ -107,10 +83,8 @@ class A2C(nn.Module):
             self.critic_hidden = None
             self.critic = nn.Linear(shared_layers[-1], 1)
 
-        # Add actor layers
         if actor_hidden_layers:
-            # Add hidden layers for actor net if actor_hidden_layers is not empty
-            self.actor_hidden = build_hidden_layer(
+            self.actor_hidden = hiddenLayers(
                 input_dim=shared_layers[-1], hidden_layers=actor_hidden_layers
             )
             self.actor = nn.Linear(actor_hidden_layers[-1], action_size)
@@ -118,10 +92,8 @@ class A2C(nn.Module):
             self.actor_hidden = None
             self.actor = nn.Linear(shared_layers[-1], action_size)
 
-        # Apply Tanh() to bound the actions
         self.tanh = nn.Tanh()
 
-        # Initialize hidden and actor-critic layers
         if self.init_type is not None:
             self.shared_layers.apply(self._initialize)
             self.critic.apply(self._initialize)
@@ -132,30 +104,10 @@ class A2C(nn.Module):
                 self.actor_hidden.apply(self._initialize)
 
     def _initialize(self, n):
-        """Initialize network weights."""
         if isinstance(n, nn.Linear):
-            if self.init_type == "xavier-uniform":
-                nn.init.xavier_uniform_(n.weight.data)
-            elif self.init_type == "xavier-normal":
-                nn.init.xavier_normal_(n.weight.data)
-            elif self.init_type == "kaiming-uniform":
-                nn.init.kaiming_uniform_(n.weight.data)
-            elif self.init_type == "kaiming-normal":
-                nn.init.kaiming_normal_(n.weight.data)
-            elif self.init_type == "orthogonal":
-                nn.init.orthogonal_(n.weight.data)
-            elif self.init_type == "uniform":
-                nn.init.uniform_(n.weight.data)
-            elif self.init_type == "normal":
-                nn.init.normal_(n.weight.data)
-            else:
-                raise KeyError(
-                    "initialization type is not found in the set of existing types"
-                )
+            nn.init.uniform_(n.weight.data)
 
     def forward(self, state):
-        """Build a network that maps state -> (action, value)."""
-
         def apply_multi_layer(layers, x, f=F.leaky_relu):
             for layer in layers:
                 x = f(layer(x))
@@ -180,15 +132,9 @@ class A2C(nn.Module):
 
 
 def get_screen():
-    # Returned screen requested by gym is 400x600x3, but is sometimes larger
-    # such as 800x1200x3. Transpose it into torch order (CHW).
-    # env.render(mode='human')
     screen = env._get_observation().transpose((2, 0, 1))
-    # Convert to float, rescale, convert to torch tensor
-    # (this doesn't require a copy)
     screen = np.ascontiguousarray(screen, dtype=np.float32) / 255
     screen = torch.from_numpy(screen)
-    # Resize, and add a batch dimension (BCHW)
     return resize(screen).unsqueeze(0).to(device)
 
 
@@ -197,7 +143,6 @@ def collect_trajectories(envs, policy, tmax=200, nrand=5):
     global ten_rewards
     global writer
 
-    # initialize returning lists and start the game!
     state_list = []
     reward_list = []
     prob_list = []
@@ -207,7 +152,6 @@ def collect_trajectories(envs, policy, tmax=200, nrand=5):
 
     state = envs.reset()
 
-    # perform nrand random steps
     for _ in range(nrand):
         action = np.random.randn(action_size)
         action = np.clip(action, -1.0, 1.0)
@@ -260,14 +204,12 @@ def calc_returns(rewards, values, dones):
     n_step = len(rewards)
     n_agent = len(rewards[0])
 
-    # Create empty buffer
     GAE = torch.zeros(n_step, n_agent).float().to(device)
     returns = torch.zeros(n_step, n_agent).float().to(device)
 
-    # Set start values
     GAE_current = torch.zeros(n_agent).float().to(device)
 
-    TAU = 0.95
+    TAU = 0.8
     discount = 0.99
     values_next = values[-1].detach()
     returns_current = values[-1].detach()
@@ -276,12 +218,9 @@ def calc_returns(rewards, values, dones):
         rewards_current = rewards[irow]
         gamma = discount * (1.0 - dones[irow].float())
 
-        # Calculate TD Error
         td_error = rewards_current + gamma * values_next - values_current
-        # Update GAE, returns
         GAE_current = td_error + gamma * TAU * GAE_current
         returns_current = rewards_current + gamma * returns_current
-        # Set GAE, returns to buffer
         GAE[irow] = GAE_current
         returns[irow] = returns_current
 
@@ -302,8 +241,6 @@ def eval_policy(envs, policy, tmax=1000):
         _, reward, done, _ = envs.step(actions[0])
         dones = done
         reward_list.append(np.mean(reward))
-
-        # stop if any of the trajectories is done to have retangular lists
         if np.any(dones):
             break
     return reward_list
@@ -316,13 +253,11 @@ if __name__ == "__main__":
     env.cid = p.connect(p.DIRECT)
     action_space = spaces.Box(low=-1, high=1, shape=(5, 1))
 
-    # if gpu is to be used
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("[+] Using device: {}".format(device))
 
     env.reset()
 
-    # number of agents
     num_agents = 1
     print("Number of agents:", num_agents)
 
@@ -332,7 +267,6 @@ if __name__ == "__main__":
     init_screen = get_screen()
     _, _, screen_height, screen_width = init_screen.shape
 
-    # size of each action
     action_size = env.action_space.shape[0]
     print("Size of each action:", action_size)
 
@@ -353,12 +287,9 @@ if __name__ == "__main__":
         shared_layers=[64, 32],
         critic_hidden_layers=[32],
         actor_hidden_layers=[32],
-        init_type="xavier-uniform",
         seed=0,
     ).to(device)
 
-    # we use the adam optimizer with learning rate 2e-4
-    # optim.SGD is also possible
     optimizer = optim.Adam(policy.parameters(), lr=2e-4)
 
     PATH = "PPOPolicy.pt"
@@ -368,10 +299,11 @@ if __name__ == "__main__":
 
     scores_window = deque(maxlen=100)  # last 100 scores
 
-    discount = 0.993
-    epsilon = 0.07
-    beta = 0.01
-    opt_epoch = 10
+    discount = 0.99
+    epsilon = 0.09
+    beta = 0.02
+    opt_epoch = 50
+
     episodes = 1000000
     batch_size = 128
     tmax = 1000  # env episode steps
@@ -400,14 +332,11 @@ if __name__ == "__main__":
 
         policy.train()
 
-        # cat all agents
         def concat_all(v):
-            # print(v.shape)
             if len(v.shape) == 3:  # actions
                 return v.reshape([-1, v.shape[-1]])
             if len(v.shape) == 5:  # states
                 v = v.reshape([-1, v.shape[-3], v.shape[-2], v.shape[-1]])
-                # print(v.shape)
                 return v
             return v.reshape([-1])
 
@@ -419,7 +348,6 @@ if __name__ == "__main__":
         gea = concat_all(gea)
         target_value = concat_all(target_value)
 
-        # gradient ascent step
         n_sample = len(old_probs_lst) // batch_size
         idx = np.arange(len(old_probs_lst))
         np.random.shuffle(idx)
@@ -443,32 +371,22 @@ if __name__ == "__main__":
                 ratio = torch.exp(log_probs - old_probs)
                 ratio_clipped = torch.clamp(ratio, 1 - epsilon, 1 + epsilon)
                 L_CLIP = torch.mean(torch.min(ratio * g, ratio_clipped * g))
-                # entropy bonus
                 S = entropy.mean()
-                # squared-error value function loss
                 L_VF = 0.5 * (tv - values).pow(2).mean()
-                # clipped surrogate
                 L = -(L_CLIP - L_VF + beta * S)
                 optimizer.zero_grad()
-                # This may need retain_graph=True on the backward pass
-                # as pytorch automatically frees the computational graph after
-                # the backward pass to save memory
-                # Without this, the chain of derivative may get lost
                 L.backward(retain_graph=True)
                 torch.nn.utils.clip_grad_norm_(policy.parameters(), 10.0)
                 optimizer.step()
                 del L
 
-        # the clipping parameter reduces as time goes on
         epsilon *= 0.999
 
-        # the regulation term also reduces
-        # this reduces exploration in later runs
         beta *= 0.998
 
         mean_reward = np.mean(scores_window)
-        writer.add_scalar("epsilon", epsilon, s)
-        writer.add_scalar("beta", beta, s)
+        writer.add_scalar("epsilon", epsilon, e)
+        writer.add_scalar("beta", beta, e)
         # display some progress every n iterations
         if best_mean_reward is None or best_mean_reward < mean_reward:
             # For saving the model and possibly resuming training
@@ -487,13 +405,11 @@ if __name__ == "__main__":
                     % (best_mean_reward, mean_reward)
                 )
             best_mean_reward = mean_reward
-        if e >= 25 and mean_reward > 50:
-            print(
-                "Environment solved in {:d} episodess!\tAverage Score: {:.2f}".format(
-                    e + 1, mean_reward
-                )
+        print(
+            "Environment solved in {:d} episodess!\tAverage Score: {:.2f}".format(
+                e + 1, mean_reward
             )
-            break
+        )
 
     print("Average Score: {:.2f}".format(mean_reward))
     elapsed = timeit.default_timer() - start_time
@@ -508,7 +424,6 @@ if __name__ == "__main__":
     plt.grid()
     plt.show()
 
-
     if args.EVAL == True:
         episode = 10
         scores_window = deque(maxlen=100)  # last 100 scores
@@ -520,11 +435,9 @@ if __name__ == "__main__":
             isTest=True,
         )
         env.cid = p.connect(p.DIRECT)
-        # load the model
         checkpoint = torch.load(PATH)
         policy.load_state_dict(checkpoint["policy_state_dict"])
 
-        # evaluate the model
         for e in range(episode):
             rewards = eval_policy(envs=env, policy=policy)
             reward = np.sum(rewards, 0)
