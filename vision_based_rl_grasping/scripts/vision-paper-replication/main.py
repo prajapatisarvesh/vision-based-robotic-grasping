@@ -26,7 +26,7 @@ from stable_baselines3.common.results_plotter import load_results, ts2xy
 from stable_baselines3.common.noise import NormalActionNoise
 from stable_baselines3.common.callbacks import BaseCallback, EvalCallback
 from stable_baselines3.common import results_plotter
-
+from stable_baselines3.common.evaluation import evaluate_policy
 
 class ContinuousDownwardBiasPolicy(object):
     """Policy which takes continuous actions, and is biased to move down."""
@@ -41,7 +41,7 @@ class ContinuousDownwardBiasPolicy(object):
         self._action_space = spaces.Box(low=-1, high=1, shape=(5,))
 
     def sample_action(self, obs, explore_prob):
-        """Implements height hack and grasping threshold hack."""
+        """Implements height hack and grMlpPolicyasping threshold hack."""
         dx, dy, dz, da, close = self._action_space.sample()
         if np.random.random() < self._height_hack_prob:
             dz = -1
@@ -160,7 +160,7 @@ def plot_results(log_folder, title="Learning Curve"):
 
 def differentPolicies(policy, Vectorized=False, nenv=1,evaluation=False):
     # Create log dir
-    log_dir = "/home/mewada/Documents/vision-based-robotic-grasping/vision_based_rl_grasping/scripts/vision-paper-replication/logs/"
+    log_dir = "./logs/"
     os.makedirs(log_dir, exist_ok=True)
     print("Temporary log dir: {}".format(log_dir))
 
@@ -179,7 +179,7 @@ def differentPolicies(policy, Vectorized=False, nenv=1,evaluation=False):
         nenv = 1
     env = SubprocVecEnv([make_env("Kuka-v0", i) for i in range(nenv)])
     # callback = SaveOnBestTrainingRewardCallback(check_freq=1000, log_dir=log_dir)
-    model = policy("MlpPolicy", env, verbose=1, tensorboard_log="runs", n_steps=1000,device='cuda')
+    model = policy("CnnPolicy", env, verbose=1, tensorboard_log="runs",device='cuda')
 
     evalCallback = EvalCallback(
         env,
@@ -187,7 +187,7 @@ def differentPolicies(policy, Vectorized=False, nenv=1,evaluation=False):
         log_path=log_dir,
         eval_freq=500,
     )
-    model.learn(total_timesteps=5, progress_bar=True, callback=evalCallback)
+    model.learn(total_timesteps=1e5, progress_bar=True, callback=evalCallback)
     model.save("A2C-Kuka")
     print("PPO Policy Implementations")
 
@@ -215,22 +215,29 @@ def differentPolicies(policy, Vectorized=False, nenv=1,evaluation=False):
 
 
 def eval(policy,nenv=1):
-  model = policy.load("A2C-Kuka")
-  env = SubprocVecEnv([make_env("Kuka-v0", i) for i in range(nenv)])
+  register_env(
+        id="Kuka-v0",
+        entry_point="pybullet_envs.bullet.kuka_diverse_object_gym_env:KukaDiverseObjectEnv",
+    )
+  model = policy.load("PPO-Kuka.zip")
+#   env = SubprocVecEnv([make_env("Kuka-v0", i) for i in range(nenv)])
+  env = gym.make(id='Kuka-v0', renders=True, isDiscrete=False, isTest=False)
+  env = DummyVecEnv([lambda: env])
   obs = env.reset()
-  
+#   mean_reward, std_reward = evaluate_policy(model, env, n_eval_episodes=10)
   rwards = []
   meanrwrd = []
   cum_rwd = 0
-  for i in range(1000):
+  for i in range(10):
     act,_ = model.predict(obs)
-    obs, rew, done, _ = env.step(act)
-    cum_rwd += rew
-    rwards.append(cum_rwd)
-    meanrwrd.append(sum(rwards[:i + 1]) / (i + 1))
+    done = False
+    while not done:
+        obs, rew, done, _ = env.step(act)
+        cum_rwd += rew
+        rwards.append(cum_rwd)
+        meanrwrd.append(sum(rwards[:i + 1]) / (i + 1))
     if done:
       obs = env.reset()
-    env.render(mode='human')
     print("Episode run: ",i)
 
   plt.plot(meanrwrd)
@@ -243,5 +250,14 @@ def eval(policy,nenv=1):
   
 if __name__ == "__main__":
     # main()
-    # differentPolicies(A2C, Vectorized=False, nenv=1)
-    eval(A2C,nenv=1)
+    # differentPolicies(A2C, Vectorized=True, nenv=50)
+    # eval(A2C,nenv=1)
+    register_env(
+        id="Kuka-v0",
+        entry_point="pybullet_envs.bullet.kuka_diverse_object_gym_env:KukaDiverseObjectEnv",
+    )
+    env = gym.make(id='Kuka-v0', renders=False, isDiscrete=False, isTest=False)
+    env = Monitor(env)
+    obs = env.reset()
+    model = DDPG("MlpPolicy", env, verbose=1, tensorboard_log="runs",device='cuda')
+    model.learn(total_timesteps=1e5, progress_bar=True)
