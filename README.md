@@ -11,10 +11,7 @@ Implementation of Deep Learning for Vision-Based Robotic Grasping
 ## For Training
 
 ```
-# Stablebaselines -- DDPG and A2C
 python3 vision-based-robotic-grasping/vision_based_rl_grasping/scripts/vision-paper-replication/trainer/main.py
-# Scratcch -- DQN and PPO
-python3 vision-based-robotic-grasping/vision_based_rl_grasping/scripts/vision-paper-replication/trainer/trainer.py
 
 ```
 
